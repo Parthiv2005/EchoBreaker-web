@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EchoBreaker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #D1D5DB;
+        }
+        .loader {
+            border: 8px solid #374151;
+            border-top: 8px solid #3B82F6;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 50px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+
+<!-- --- EDIT: Added a connection status banner --- -->
+<div id="connection-status" class="hidden fixed top-0 left-0 right-0 bg-yellow-600 text-white text-center p-2 z-50 transition-transform duration-300 -translate-y-full">
+    Connecting to real-time server...
+</div>
+
+<div class="container mx-auto px-4 py-8 pt-16">
+    <header class="text-center mb-12">
+        <h1 class="text-5xl font-extrabold text-white">EchoBreaker</h1>
+        <p class="text-lg text-gray-400 mt-2">See every side of the story.</p>
+    </header>
+
+    <main id="stories-container" class="space-y-4">
+        <!-- Story items will be inserted here by JavaScript -->
+    </main>
+
+    <div id="loader-container" class="text-center py-10">
+        <div class="loader"></div>
+        <p class="text-gray-400 mt-4 text-lg">Fetching the latest stories...</p>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const storiesContainer = document.getElementById('stories-container');
+        const loaderContainer = document.getElementById('loader-container');
+        const connectionStatus = document.getElementById('connection-status');
+
+        const API_BASE_URL = 'https://backend-api-623122955409.asia-south2.run.app';
+        const API_URL = `${API_BASE_URL}/api/stories`;
+
+        const socket = io(API_BASE_URL, {
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            randomizationFactor: 0.5,
+            transports: ['websocket', 'polling']
+        });
+
+        let initialLoadComplete = false;
+
+        const showConnectionStatus = (message, isError = false) => {
+            connectionStatus.textContent = message;
+            connectionStatus.classList.toggle('bg-red-600', isError);
+            connectionStatus.classList.toggle('bg-yellow-600', !isError);
+            connectionStatus.classList.remove('hidden', '-translate-y-full');
+        };
+
+        const hideConnectionStatus = () => {
+            connectionStatus.classList.add('-translate-y-full');
+        };
+
+        socket.on('connect', () => {
+            console.log('Connected to real-time server!');
+            hideConnectionStatus();
+        });
+
+        socket.on('disconnect', () => {
+            console.warn('Disconnected from real-time server. Attempting to reconnect...');
+            showConnectionStatus('Connection lost. Reconnecting...');
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('WebSocket connection error:', err);
+            // Only show the disruptive full-page error if the initial load hasn't even completed yet.
+            if (!initialLoadComplete) {
+                loaderContainer.style.display = 'none';
+                storiesContainer.innerHTML = `<p class="text-center col-span-full text-red-500 placeholder-message">Could not connect to the real-time server. The backend may be offline or unreachable.</p>`;
+            } else {
+                showConnectionStatus('Could not connect to real-time updates.', true);
+            }
+        });
+
+        socket.on('new_story', (story) => {
+            console.log('New story received via WebSocket:', story);
+            loaderContainer.style.display = 'none';
+            initialLoadComplete = true;
+
+            const placeholder = storiesContainer.querySelector('.placeholder-message');
+            if (placeholder) placeholder.remove();
+
+            const existingCard = storiesContainer.querySelector(`[data-story-id="${story._id}"]`);
+            if (!existingCard) {
+                const card = createStoryCard(story);
+                storiesContainer.prepend(card);
+            }
+        });
+
+        const createStoryCard = (story) => {
+            const card = document.createElement('a');
+            card.href = `story.html?id=${story._id}`;
+            card.className = 'max-w-4xl mx-auto bg-gray-800 text-white rounded-lg p-4 flex flex-col sm:flex-row items-center gap-6 shadow-lg hover:bg-gray-700 transition-colors duration-300';
+            card.dataset.storyId = story._id;
+
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'flex-1';
+
+            const categories = document.createElement('div');
+            categories.className = 'text-sm text-gray-400 mb-2 uppercase tracking-wider';
+            categories.textContent = story.categories.join(' · ');
+
+            const headline = document.createElement('h2');
+            headline.className = 'text-2xl font-bold mb-4 leading-snug text-gray-100';
+            headline.textContent = story.main_headline;
+
+            const biasDiv = document.createElement('div');
+            biasDiv.className = 'flex items-center gap-4 w-full';
+
+            const biasBar = document.createElement('div');
+            biasBar.className = 'flex-1 h-2 rounded-full overflow-hidden flex bg-gray-600';
+
+            const biasCounts = { left: 0, center: 0, right: 0 };
+            story.sources.forEach(source => {
+                if (source.bias.includes('left')) biasCounts.left++;
+                else if (source.bias.includes('right')) biasCounts.right++;
+                else if (source.bias.includes('center')) biasCounts.center++;
+            });
+            const totalSources = story.sources.length || 1;
+
+            const leftPercent = (biasCounts.left / totalSources) * 100;
+            const centerPercent = (biasCounts.center / totalSources) * 100;
+            const rightPercent = (biasCounts.right / totalSources) * 100;
+
+            if (leftPercent > 0) {
+                const leftBar = document.createElement('div');
+                leftBar.className = 'bg-blue-600';
+                leftBar.style.width = `${leftPercent}%`;
+                biasBar.appendChild(leftBar);
+            }
+            if (centerPercent > 0) {
+                const centerBar = document.createElement('div');
+                centerBar.className = 'bg-gray-400';
+                centerBar.style.width = `${centerPercent}%`;
+                biasBar.appendChild(centerBar);
+            }
+            if (rightPercent > 0) {
+                const rightBar = document.createElement('div');
+                rightBar.className = 'bg-red-600';
+                rightBar.style.width = `${rightPercent}%`;
+                biasBar.appendChild(rightBar);
+            }
+
+            const sourceCount = document.createElement('div');
+            sourceCount.className = 'text-sm text-gray-400 whitespace-nowrap';
+            sourceCount.textContent = `${story.article_count} articles from ${story.sources.length} sources`;
+
+            biasDiv.appendChild(biasBar);
+            biasDiv.appendChild(sourceCount);
+
+            infoDiv.appendChild(categories);
+            infoDiv.appendChild(headline);
+            infoDiv.appendChild(biasDiv);
+
+            const thumbnailDiv = document.createElement('div');
+            thumbnailDiv.className = 'w-full sm:w-40 h-28 relative overflow-hidden rounded-lg flex-shrink-0 mt-4 sm:mt-0';
+
+            const thumbnailImg = document.createElement('img');
+            thumbnailImg.src = story.thumbnail;
+            thumbnailImg.alt = story.main_headline;
+            thumbnailImg.className = 'w-full h-full object-cover';
+            thumbnailImg.onerror = () => {
+                thumbnailImg.src = `https://placehold.co/160x112/1F2937/FFFFFF?text=Image`;
+            };
+
+            thumbnailDiv.appendChild(thumbnailImg);
+            card.appendChild(infoDiv);
+            card.appendChild(thumbnailDiv);
+
+            return card;
+        };
+
+        const fetchWithRetry = async (url, options, retries = 4) => {
+            let delay = 1000;
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response;
+                } catch (error) {
+                    console.error(`Fetch attempt ${i + 1} failed. Retrying in ${delay}ms...`, error);
+                    if (i < retries - 1) {
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2;
+                    }
+                }
+            }
+            throw new Error(`Failed to fetch after ${retries} attempts.`);
+        };
+
+        const fetchStories = async () => {
+            try {
+                const response = await fetchWithRetry(`${API_URL}?min_sources=2`, { mode: 'cors' });
+                const data = await response.json();
+
+                loaderContainer.style.display = 'none';
+                initialLoadComplete = true;
+
+                if (data.stories && data.stories.length > 0) {
+                    storiesContainer.innerHTML = '';
+                    data.stories.forEach(story => {
+                        const card = createStoryCard(story);
+                        storiesContainer.appendChild(card);
+                    });
+                } else {
+                    storiesContainer.innerHTML = '<p class="text-center col-span-full text-gray-400 placeholder-message">No stories with multiple perspectives found yet. The worker is fetching them now...</p>';
+                }
+            } catch (error) {
+                console.error("Failed to fetch stories:", error);
+                loaderContainer.style.display = 'none';
+                storiesContainer.innerHTML = `<p class="text-center col-span-full text-red-500 placeholder-message">Error fetching stories. The backend service may be starting up or temporarily unavailable.</p>`;
+            }
+        };
+
+        fetchStories();
+    });
+</script>
+
+</body>
+</html>
+

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Story Details - EchoBreaker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #D1D5DB;
+        }
+        .loader {
+            border: 4px solid #374151;
+            border-top: 4px solid #3B82F6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tab-button {
+            padding: 0.5rem 1rem;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease-in-out;
+            color: #9CA3AF;
+        }
+        .tab-button.active {
+            color: #3B82F6;
+            border-bottom-color: #3B82F6;
+        }
+        .tab-button:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+
+<div class="container mx-auto px-4 py-8">
+    <header class="mb-8">
+        <a href="index.html" class="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+            </svg>
+            Back to All Stories
+        </a>
+    </header>
+
+    <main id="story-detail-container">
+        <!-- Main loader for the whole page -->
+        <div id="main-loader" class="flex justify-center items-center h-64">
+            <div class="loader"></div>
+        </div>
+    </main>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const storyContainer = document.getElementById('story-detail-container');
+        const mainLoader = document.getElementById('main-loader');
+        const API_BASE_URL = 'https://backend-api-623122955409.asia-south2.run.app';
+
+        const params = new URLSearchParams(window.location.search);
+        const storyId = params.get('id');
+
+        if (!storyId) {
+            storyContainer.innerHTML = '<p class="text-center text-red-500">No story ID provided in the URL.</p>';
+            mainLoader.style.display = 'none';
+            return;
+        }
+
+        const fetchStoryData = async () => {
+            try {
+                // --- EDIT: Now makes a single API call to the unified endpoint ---
+                const response = await fetch(`${API_BASE_URL}/api/story/${storyId}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch story details. Status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                if (!data.articles || data.articles.length === 0) {
+                    throw new Error("Story data is incomplete or not found.");
+                }
+
+                mainLoader.style.display = 'none';
+                renderStoryDetails(data.articles, data.summary);
+
+            } catch (error) {
+                console.error("Failed to fetch story details:", error);
+                mainLoader.style.display = 'none';
+                storyContainer.innerHTML = `<p class="text-center text-red-500">Error loading story details: ${error.message}</p>`;
+            }
+        };
+
+        const renderStoryDetails = (articles, summary) => {
+            const mainHeadline = articles[0]?.title || 'Story Details';
+
+            const biasCounts = { left: 0, center: 0, right: 0 };
+            articles.forEach(article => {
+                if (article.bias.includes('left')) biasCounts.left++;
+                else if (article.bias.includes('right')) biasCounts.right++;
+                else if (article.bias.includes('center')) biasCounts.center++;
+            });
+            const totalSources = articles.length;
+
+            storyContainer.innerHTML = `
+                <h1 class="text-3xl md:text-4xl font-extrabold text-white mb-8">${mainHeadline}</h1>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-2">
+                        <!-- AI Analysis Section -->
+                        <div class="bg-gray-800 rounded-lg shadow-lg mb-8">
+                            <div id="summary-tabs" class="flex border-b border-gray-700"></div>
+                            <div id="summary-content" class="text-gray-300 leading-relaxed p-6 min-h-[200px] whitespace-pre-wrap"></div>
+                        </div>
+
+                        <!-- Articles List Section -->
+                        <div class="bg-gray-800 rounded-lg shadow-lg">
+                            <div id="articles-tabs" class="flex border-b border-gray-700"></div>
+                            <div id="articles-list" class="space-y-2 p-4"></div>
+                        </div>
+                    </div>
+
+                    <!-- Sidebar Section -->
+                    <div class="space-y-6">
+                        <div class="bg-gray-800 rounded-lg p-6 shadow-lg">
+                            <h3 class="font-bold text-lg text-white mb-3">Coverage Details</h3>
+                            <p>${totalSources} sources covering this story.</p>
+                        </div>
+                        <div class="bg-gray-800 rounded-lg p-6 shadow-lg">
+                            <h3 class="font-bold text-lg text-white mb-4">Bias Distribution</h3>
+                            <div class="space-y-3">
+                                ${createBiasBar('Left', biasCounts.left, totalSources, 'bg-blue-600')}
+                                ${createBiasBar('Center', biasCounts.center, totalSources, 'bg-gray-400')}
+                                ${createBiasBar('Right', biasCounts.right, totalSources, 'bg-red-600')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            setupSummaryTabs(summary);
+            setupArticlesTabs(articles);
+        };
+
+        const createBiasBar = (label, count, total, colorClass) => {
+            const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+            return `
+                <div>
+                    <div class="flex items-center justify-between text-sm mb-1">
+                        <span>${label}</span>
+                        <span>${count} sources (${percentage}%)</span>
+                    </div>
+                    <div class="w-full bg-gray-600 rounded-full h-2.5">
+                        <div class="${colorClass} h-2.5 rounded-full" style="width: ${percentage}%"></div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const setupSummaryTabs = (summary) => {
+            const tabsContainer = document.getElementById('summary-tabs');
+            const contentContainer = document.getElementById('summary-content');
+
+            const summaries = summary?.summaries || {};
+            const availableTabs = ['Comparison'];
+            if(summaries.left) availableTabs.push('Left');
+            if(summaries.center) availableTabs.push('Center');
+            if(summaries.right) availableTabs.push('Right');
+
+            availableTabs.forEach((key, index) => {
+                const tab = document.createElement('button');
+                tab.textContent = key;
+                tab.className = `tab-button ${index === 0 ? 'active' : ''}`;
+                tab.dataset.target = key.toLowerCase();
+                tabsContainer.appendChild(tab);
+            });
+
+            const updateContent = (target) => {
+                contentContainer.innerHTML = '<div class="flex justify-center items-center h-full"><div class="loader"></div></div>';
+                setTimeout(() => { // Simulate loading
+                    if (target === 'comparison') {
+                        contentContainer.textContent = summary?.comparison || "A comparison is being generated. Check back soon.";
+                    } else {
+                        contentContainer.textContent = summaries[target] || `No summary available for this perspective.`;
+                    }
+                }, 200);
+            };
+
+            tabsContainer.addEventListener('click', (e) => {
+                if(e.target.tagName === 'BUTTON') {
+                    tabsContainer.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    updateContent(e.target.dataset.target);
+                }
+            });
+
+            updateContent('comparison'); // Show comparison content by default
+        };
+
+        const setupArticlesTabs = (articles) => {
+            const tabsContainer = document.getElementById('articles-tabs');
+            const listContainer = document.getElementById('articles-list');
+            const filters = ['All', 'Left', 'Center', 'Right'];
+
+            filters.forEach((filter, index) => {
+                const tab = document.createElement('button');
+                tab.textContent = filter;
+                tab.className = `tab-button ${index === 0 ? 'active' : ''}`;
+                tab.dataset.filter = filter.toLowerCase();
+                tabsContainer.appendChild(tab);
+            });
+
+            const renderList = (filter) => {
+                listContainer.innerHTML = '';
+                const filteredArticles = articles.filter(article => {
+                    if (filter === 'all') return true;
+                    return article.bias.includes(filter);
+                });
+
+                if(filteredArticles.length === 0) {
+                    listContainer.innerHTML = '<p class="text-gray-400 p-4">No articles match this filter.</p>';
+                    return;
+                }
+
+                filteredArticles.forEach(article => {
+                    const articleEl = document.createElement('a');
+                    articleEl.href = article.link;
+                    articleEl.target = '_blank';
+                    articleEl.rel = 'noopener noreferrer';
+                    articleEl.className = 'block bg-gray-700/50 p-4 rounded-lg hover:bg-gray-700 transition-colors';
+                    const publishedDate = article.published ? new Date(article.published).toLocaleDateString() : 'Date not available';
+                    articleEl.innerHTML = `
+                        <p class="font-semibold text-white">${article.title}</p>
+                        <p class="text-sm text-gray-400">${article.source}</p>
+                    `;
+                    listContainer.appendChild(articleEl);
+                });
+            };
+
+            tabsContainer.addEventListener('click', (e) => {
+                if(e.target.tagName === 'BUTTON') {
+                    tabsContainer.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    renderList(e.target.dataset.filter);
+                }
+            });
+
+            renderList('all');
+        };
+
+        fetchStoryData();
+    });
+</script>
+
+</body>
+</html>
+
